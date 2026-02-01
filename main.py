@@ -247,6 +247,18 @@ class Config:
         if not self.GEMINI_API_KEY:
             errors.append("❌ GEMINI_API_KEY is required")
         
+        # التحقق من تسمية النموذج
+        if not self.GEMINI_MODEL:
+            errors.append("❌ GEMINI_MODEL is required")
+        else:
+            # التحقق من صحة اسم النموذج
+            valid_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-flash']
+            model_base = self.GEMINI_MODEL.replace('models/', '').strip()
+            
+            if model_base not in valid_models:
+                errors.append(f"⚠️ WARNING: Model '{model_base}' may not be supported")
+                errors.append(f"   Valid models: {', '.join(valid_models)}")
+        
         if not self.BLOGGER_BLOG_ID:
             errors.append("❌ BLOGGER_BLOG_ID is required")
         
@@ -592,46 +604,159 @@ class Recipe:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class GeminiChefEngine:
-    """محرك توليد الوصفات بواسطة Gemini AI - محسّن للسرعة"""
+    """محرك توليد الوصفات بواسطة Gemini AI - محسّن للسرعة والاستقرار"""
     
     def __init__(self):
-        genai.configure(api_key=config.GEMINI_API_KEY)
+        # ═══ التهيئة المحسّنة مع إجبار v1 API ═══
         
-        self.model = genai.GenerativeModel(
-            model_name=config.GEMINI_MODEL,
-            generation_config={
-                "temperature": config.GEMINI_TEMPERATURE,
-                "top_p": 0.95,
-                "top_k": 40,
-                "max_output_tokens": config.GEMINI_MAX_TOKENS,
-            }
+        # الخطوة 1: تكوين API مع التحقق الصارم
+        genai.configure(
+            api_key=config.GEMINI_API_KEY,
+            transport='rest',  # إجبار استخدام REST API
+            client_options={'api_endpoint': 'https://generativelanguage.googleapis.com'}  # Endpoint الصريح
         )
         
-        logger.info(f"✅ Gemini AI Engine initialized | Model: {config.GEMINI_MODEL}")
-    
-    def generate_recipe(self, category: str) -> Optional[Recipe]:
+        logger.info("🔧 Gemini API configured with v1 stable endpoint")
+        
+        # الخطوة 2: توحيد تسمية النموذج
+        model_name = self._normalize_model_name(config.GEMINI_MODEL)
+        logger.info(f"📝 Normalized model name: {model_name}")
+        
+        # الخطوة 3: إنشاء النموذج مع الإعدادات المحسّنة
         try:
-            logger.info(f"🤖 Generating recipe for: {category}")
+            self.model = genai.GenerativeModel(
+                model_name=model_name,
+                generation_config={
+                    "temperature": config.GEMINI_TEMPERATURE,
+                    "top_p": 0.95,
+                    "top_k": 40,
+                    "max_output_tokens": config.GEMINI_MAX_TOKENS,
+                }
+            )
+            logger.info(f"✅ Gemini AI Engine initialized successfully")
+            logger.info(f"   • Model: {model_name}")
+            logger.info(f"   • API Version: v1 (stable)")
+            logger.info(f"   • Temperature: {config.GEMINI_TEMPERATURE}")
+            logger.info(f"   • Max Tokens: {config.GEMINI_MAX_TOKENS}")
             
-            prompt = self._build_enhanced_prompt(category)
-            
-            response = self.model.generate_content(prompt)
-            
-            if not response or not response.text:
-                logger.error("❌ Empty response from Gemini")
-                return None
-            
-            recipe = self._parse_response(response.text, category)
-            
-            if recipe:
-                logger.info(f"✅ Generated: {recipe.title}")
-                return recipe
-            
-            return None
+            # الخطوة 4: اختبار الاتصال
+            self._test_connection()
             
         except Exception as e:
-            logger.error(f"❌ Generation failed: {e}")
-            return None
+            logger.critical(f"❌ Failed to initialize Gemini model: {e}")
+            raise
+    
+    def _normalize_model_name(self, model_name: str) -> str:
+        """
+        توحيد تسمية النموذج بإضافة 'models/' إذا لم تكن موجودة
+        
+        Args:
+            model_name: اسم النموذج من الإعدادات
+            
+        Returns:
+            str: اسم النموذج الموحد
+            
+        Examples:
+            'gemini-1.5-flash' -> 'models/gemini-1.5-flash'
+            'models/gemini-1.5-flash' -> 'models/gemini-1.5-flash'
+            'gemini-1.5-pro' -> 'models/gemini-1.5-pro'
+        """
+        # إزالة أي مسافات
+        model_name = model_name.strip()
+        
+        # التحقق إذا كانت البادئة موجودة بالفعل
+        if model_name.startswith('models/'):
+            return model_name
+        
+        # إضافة البادئة
+        normalized = f"models/{model_name}"
+        
+        logger.debug(f"Model name normalized: '{model_name}' -> '{normalized}'")
+        
+        return normalized
+    
+    def _test_connection(self):
+        """
+        اختبار الاتصال بـ Gemini API
+        
+        يرسل طلب بسيط للتحقق من:
+        - صحة API Key
+        - توفر النموذج
+        - سلامة الاتصال
+        """
+        try:
+            logger.info("🔍 Testing Gemini API connection...")
+            
+            test_response = self.model.generate_content(
+                "اكتب 'مرحبا' فقط",
+                request_options={'timeout': 30}
+            )
+            
+            if test_response and test_response.text:
+                logger.info("✅ Gemini API connection test successful")
+                logger.debug(f"   Test response: {test_response.text[:50]}...")
+            else:
+                logger.warning("⚠️ API responded but with empty content")
+                
+        except Exception as e:
+            logger.error(f"❌ API connection test failed: {e}")
+            logger.warning("⚠️ Will continue, but API may not be working correctly")
+            logger.warning("   Check: API key, model name, network connectivity")
+    
+    def generate_recipe(self, category: str, max_retries: int = 3) -> Optional[Recipe]:
+        """
+        توليد وصفة مع آلية إعادة المحاولة
+        
+        Args:
+            category: فئة الوصفة
+            max_retries: عدد المحاولات القصوى
+            
+        Returns:
+            Recipe أو None
+        """
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"🤖 Generating recipe for: {category} (Attempt {attempt}/{max_retries})")
+                
+                prompt = self._build_enhanced_prompt(category)
+                
+                # استدعاء API مع timeout محدد
+                response = self.model.generate_content(
+                    prompt,
+                    request_options={'timeout': 60}  # 60 ثانية timeout
+                )
+                
+                if not response or not response.text:
+                    logger.error(f"❌ Empty response from Gemini (Attempt {attempt})")
+                    if attempt < max_retries:
+                        logger.info(f"⏳ Retrying in 5 seconds...")
+                        time.sleep(5)
+                        continue
+                    return None
+                
+                recipe = self._parse_response(response.text, category)
+                
+                if recipe:
+                    logger.info(f"✅ Generated successfully: {recipe.title}")
+                    return recipe
+                else:
+                    logger.warning(f"⚠️ Parsing failed (Attempt {attempt})")
+                    if attempt < max_retries:
+                        logger.info(f"⏳ Retrying with modified prompt...")
+                        time.sleep(3)
+                        continue
+                
+            except Exception as e:
+                logger.error(f"❌ Generation failed (Attempt {attempt}/{max_retries}): {e}")
+                
+                if attempt < max_retries:
+                    logger.info(f"⏳ Retrying in 10 seconds...")
+                    time.sleep(10)
+                else:
+                    logger.error(f"💥 All {max_retries} attempts failed")
+                    return None
+        
+        return None
     
     def _build_enhanced_prompt(self, category: str) -> str:
         """بناء prompt محسّن لجودة أعلى وسرعة أفضل"""
