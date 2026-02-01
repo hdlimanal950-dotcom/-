@@ -1,0 +1,15 @@
+# Google AI & APIs
+google-generativeai
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
+google-api-python-client
+
+# Production Server
+flask
+waitress
+
+# Utilities
+requests
+urllib3
+certifi
