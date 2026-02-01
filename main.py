@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 ═══════════════════════════════════════════════════════════════════════════════
-ZAJMIL AI CHEF - Complete Integrated System v1.0.0
+ZAJMIL AI CHEF - Complete Integrated System v1.1.0 [RENDER OPTIMIZED]
 ═══════════════════════════════════════════════════════════════════════════════
 نظام متكامل لتوليد ونشر وصفات الطبخ باستخدام الذكاء الاصطناعي
 
-المميزات:
+المميزات المحسّنة:
+✅ قراءة شاملة لمتغيرات Render البيئية
+✅ حساب ديناميكي لعدد المقالات حسب أقصر مدة لجلب المشاهدات
 ✅ توليد وصفات احترافية بـ Gemini AI
 ✅ تحسين SEO تلقائي
 ✅ نشر مباشر على Blogger
@@ -13,9 +15,9 @@ ZAJMIL AI CHEF - Complete Integrated System v1.0.0
 ✅ ضمان الجودة والتحقق
 
 الاستخدام:
-  python zajmil_complete.py --mode once              # نشر وصفة واحدة
-  python zajmil_complete.py --mode continuous        # نشر مستمر
-  python zajmil_complete.py --mode report            # تقرير الأداء
+  python main.py --mode once              # نشر وصفة واحدة
+  python main.py --mode continuous        # نشر مستمر
+  python main.py --mode report            # تقرير الأداء
   
 ═══════════════════════════════════════════════════════════════════════════════
 """
@@ -64,18 +66,18 @@ except ImportError:
     sys.exit(1)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION WITH RENDER ENVIRONMENT VARIABLES SUPPORT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class Config:
-    """إعدادات النظام الشاملة"""
+    """إعدادات النظام الشاملة مع دعم كامل لمتغيرات Render"""
     
     # Gemini AI
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = "models/gemini-1.5-pro"
-    GEMINI_TEMPERATURE: float = 0.9
-    GEMINI_MAX_TOKENS: int = 8000
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "models/gemini-1.5-pro")
+    GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.9"))
+    GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "8000"))
     
     # Blogger API
     BLOGGER_BLOG_ID: str = os.getenv("BLOGGER_BLOG_ID", "")
@@ -85,41 +87,96 @@ class Config:
         "https://www.googleapis.com/auth/blogger"
     ])
     
-    # Content Settings
-    CONTENT_CATEGORIES: List[str] = field(default_factory=lambda: [
-        "حلويات عربية", "معجنات", "كيك وتورتات", "بسكويت وكوكيز",
-        "حلويات باردة", "فطائر ومخبوزات", "حلويات صحية", "أطباق رمضانية"
-    ])
+    # Content Settings (قراءة من متغيرات البيئة)
+    CONTENT_CATEGORIES: List[str] = field(default_factory=lambda: 
+        json.loads(os.getenv("CONTENT_CATEGORIES", json.dumps([
+            "حلويات عربية", "معجنات", "كيك وتورتات", "بسكويت وكوكيز",
+            "حلويات باردة", "فطائر ومخبوزات", "حلويات صحية", "أطباق رمضانية"
+        ])))
+    )
     
-    MIN_RECIPE_INGREDIENTS: int = 5
-    MIN_RECIPE_STEPS: int = 6
-    TARGET_WORD_COUNT: int = 1200
+    MIN_RECIPE_INGREDIENTS: int = int(os.getenv("MIN_RECIPE_INGREDIENTS", "5"))
+    MIN_RECIPE_STEPS: int = int(os.getenv("MIN_RECIPE_STEPS", "6"))
+    TARGET_WORD_COUNT: int = int(os.getenv("TARGET_WORD_COUNT", "1200"))
     
-    # SEO
-    PRIMARY_KEYWORDS: List[str] = field(default_factory=lambda: [
-        "وصفات طبخ", "حلويات سهلة", "طريقة عمل", "وصفات منزلية",
-        "حلويات لذيذة", "مطبخ عربي", "وصفات سريعة"
-    ])
+    # SEO (قراءة من متغيرات البيئة)
+    PRIMARY_KEYWORDS: List[str] = field(default_factory=lambda: 
+        json.loads(os.getenv("PRIMARY_KEYWORDS", json.dumps([
+            "وصفات طبخ", "حلويات سهلة", "طريقة عمل", "وصفات منزلية",
+            "حلويات لذيذة", "مطبخ عربي", "وصفات سريعة"
+        ])))
+    )
     
-    META_DESCRIPTION_LENGTH: int = 160
-    ENABLE_SCHEMA_MARKUP: bool = True
+    META_DESCRIPTION_LENGTH: int = int(os.getenv("META_DESCRIPTION_LENGTH", "160"))
+    ENABLE_SCHEMA_MARKUP: bool = os.getenv("ENABLE_SCHEMA_MARKUP", "true").lower() == "true"
     
-    # Publishing
+    # Publishing Strategy - معايير محسّنة
     PUBLISH_INTERVAL_HOURS: int = int(os.getenv("PUBLISH_INTERVAL_HOURS", "24"))
     AUTO_PUBLISH: bool = os.getenv("AUTO_PUBLISH", "true").lower() == "true"
     DRAFT_MODE: bool = os.getenv("DRAFT_MODE", "false").lower() == "true"
+    
+    # ═══ إعدادات جديدة: حساب عدد المقالات الديناميكي ═══
+    # أقصر مدة فعالة لجلب المشاهدات (بالساعات)
+    MIN_VIEWS_FETCH_HOURS: int = int(os.getenv("MIN_VIEWS_FETCH_HOURS", "48"))
+    
+    # معامل الأمان (safety factor) للتحكم في الكمية
+    ARTICLE_SAFETY_FACTOR: float = float(os.getenv("ARTICLE_SAFETY_FACTOR", "0.8"))
+    
+    # الحد الأقصى للمقالات (حماية من التضخم)
+    MAX_ARTICLES_LIMIT: int = int(os.getenv("MAX_ARTICLES_LIMIT", "100"))
+    
+    # الحد الأدنى للمقالات (ضمان الحد الأدنى من الإنتاجية)
+    MIN_ARTICLES_LIMIT: int = int(os.getenv("MIN_ARTICLES_LIMIT", "1"))
+    
+    # تفعيل/تعطيل الحساب الديناميكي
+    ENABLE_DYNAMIC_ARTICLE_COUNT: bool = os.getenv("ENABLE_DYNAMIC_ARTICLE_COUNT", "true").lower() == "true"
+    
+    # عدد المقالات الثابت (في حال تعطيل الحساب الديناميكي)
+    FIXED_ARTICLE_COUNT: int = int(os.getenv("FIXED_ARTICLE_COUNT", "50"))
+    
+    # Render Specific Settings
+    RENDER_INSTANCE_ID: str = os.getenv("RENDER_INSTANCE_ID", "")
+    RENDER_SERVICE_NAME: str = os.getenv("RENDER_SERVICE_NAME", "")
+    RENDER_GIT_COMMIT: str = os.getenv("RENDER_GIT_COMMIT", "")
     
     # Paths
     BASE_DIR: Path = Path(__file__).resolve().parent
     CREDENTIALS_PATH: Path = field(init=False)
     DATA_DIR: Path = field(init=False)
-    LOG_FILE: str = "zajmil.log"
-    PERFORMANCE_FILE: str = "performance.json"
+    LOG_FILE: str = os.getenv("LOG_FILE", "zajmil.log")
+    PERFORMANCE_FILE: str = os.getenv("PERFORMANCE_FILE", "performance.json")
     
     def __post_init__(self):
         self.CREDENTIALS_PATH = self.BASE_DIR / "token.json"
         self.DATA_DIR = self.BASE_DIR / "data"
         self.DATA_DIR.mkdir(exist_ok=True)
+    
+    def calculate_optimal_article_count(self) -> int:
+        """
+        حساب عدد المقالات الأمثل بناءً على أقصر مدة لجلب المشاهدات
+        
+        المعادلة: 
+        articles = (MIN_VIEWS_FETCH_HOURS / PUBLISH_INTERVAL_HOURS) × SAFETY_FACTOR
+        
+        Returns:
+            int: عدد المقالات المحسوب ضمن الحدود المسموحة
+        """
+        if not self.ENABLE_DYNAMIC_ARTICLE_COUNT:
+            return self.FIXED_ARTICLE_COUNT
+        
+        # الحساب الأساسي
+        raw_count = (self.MIN_VIEWS_FETCH_HOURS / self.PUBLISH_INTERVAL_HOURS) * self.ARTICLE_SAFETY_FACTOR
+        
+        # تقريب للأعلى لضمان التغطية
+        calculated_count = int(raw_count) + (1 if raw_count % 1 > 0 else 0)
+        
+        # تطبيق الحدود
+        final_count = max(
+            self.MIN_ARTICLES_LIMIT,
+            min(calculated_count, self.MAX_ARTICLES_LIMIT)
+        )
+        
+        return final_count
     
     def validate(self) -> bool:
         if not self.GEMINI_API_KEY:
@@ -128,6 +185,14 @@ class Config:
             raise ValueError("❌ BLOGGER_BLOG_ID is required")
         if not self.BLOGGER_CLIENT_ID or not self.BLOGGER_CLIENT_SECRET:
             raise ValueError("❌ Blogger OAuth credentials required")
+        
+        # التحقق من صحة المعايير الجديدة
+        if self.MIN_VIEWS_FETCH_HOURS < self.PUBLISH_INTERVAL_HOURS:
+            raise ValueError("❌ MIN_VIEWS_FETCH_HOURS must be >= PUBLISH_INTERVAL_HOURS")
+        
+        if self.ARTICLE_SAFETY_FACTOR <= 0 or self.ARTICLE_SAFETY_FACTOR > 2:
+            raise ValueError("❌ ARTICLE_SAFETY_FACTOR must be between 0 and 2")
+        
         return True
 
 config = Config()
@@ -236,24 +301,119 @@ class Recipe:
     </div>
     
     <div class="recipe-footer">
-        <p><strong>الوسوم:</strong> {' '.join(['#' + t for t in self.tags])}</p>
+        <p>💡 <strong>نصائح للنجاح:</strong> اتبع الخطوات بدقة للحصول على أفضل النتائج</p>
+        <p>⭐ شارك تجربتك في التعليقات!</p>
     </div>
 </article>
 
-<script type="application/ld+json">
-{{
-  "@context": "https://schema.org/",
-  "@type": "Recipe",
-  "name": "{self.title}",
-  "description": "{self.description}",
-  "prepTime": "PT{self.prep_time}M",
-  "cookTime": "PT{self.cook_time}M",
-  "recipeYield": "{self.servings} أشخاص",
-  "recipeCategory": "{self.category}",
-  "recipeIngredient": {json.dumps(self.ingredients, ensure_ascii=False)},
-  "recipeInstructions": {json.dumps([{"@type": "HowToStep", "text": s} for s in self.steps], ensure_ascii=False)}
+<style>
+.recipe-post {{
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    line-height: 1.8;
+    color: #333;
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
 }}
-</script>
+
+.recipe-header h1 {{
+    color: #2c3e50;
+    font-size: 2.2em;
+    margin-bottom: 10px;
+    border-bottom: 3px solid #e74c3c;
+    padding-bottom: 10px;
+}}
+
+.recipe-meta {{
+    color: #7f8c8d;
+    font-size: 0.95em;
+    margin: 15px 0;
+}}
+
+.recipe-meta span {{
+    margin-right: 15px;
+}}
+
+.recipe-description p {{
+    font-size: 1.1em;
+    color: #34495e;
+    background: #ecf0f1;
+    padding: 15px;
+    border-left: 4px solid #3498db;
+    margin: 20px 0;
+}}
+
+.recipe-ingredients, .recipe-steps {{
+    margin: 30px 0;
+}}
+
+.recipe-ingredients h2, .recipe-steps h2 {{
+    color: #e74c3c;
+    font-size: 1.6em;
+    margin-bottom: 15px;
+}}
+
+.recipe-ingredients ul {{
+    list-style: none;
+    padding: 0;
+}}
+
+.recipe-ingredients li {{
+    background: #f8f9fa;
+    padding: 10px 15px;
+    margin: 8px 0;
+    border-left: 4px solid #27ae60;
+    font-size: 1.05em;
+}}
+
+.recipe-steps ol {{
+    counter-reset: step-counter;
+    list-style: none;
+    padding: 0;
+}}
+
+.recipe-steps li {{
+    counter-increment: step-counter;
+    background: #fff;
+    padding: 15px;
+    margin: 15px 0;
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    position: relative;
+    padding-right: 60px;
+}}
+
+.recipe-steps li:before {{
+    content: counter(step-counter);
+    position: absolute;
+    right: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #3498db;
+    color: white;
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 1.2em;
+}}
+
+.recipe-footer {{
+    margin-top: 40px;
+    padding: 20px;
+    background: #fffbea;
+    border-radius: 8px;
+    border: 2px dashed #f39c12;
+}}
+
+.recipe-footer p {{
+    margin: 10px 0;
+    font-size: 1.05em;
+}}
+</style>
 """
         return html
 
@@ -262,222 +422,227 @@ class Recipe:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class GeminiChefEngine:
-    """محرك الذكاء الاصطناعي"""
+    """محرك توليد الوصفات بواسطة Gemini AI"""
     
     def __init__(self):
         genai.configure(api_key=config.GEMINI_API_KEY)
+        
         self.model = genai.GenerativeModel(
-            config.GEMINI_MODEL,
-            generation_config=genai.types.GenerationConfig(
-                temperature=config.GEMINI_TEMPERATURE,
-                max_output_tokens=config.GEMINI_MAX_TOKENS,
-                top_p=0.95, top_k=40
-            )
+            model_name=config.GEMINI_MODEL,
+            generation_config={
+                "temperature": config.GEMINI_TEMPERATURE,
+                "top_p": 0.95,
+                "top_k": 40,
+                "max_output_tokens": config.GEMINI_MAX_TOKENS,
+            }
         )
-        logger.info(f"✅ Gemini initialized | Model: {config.GEMINI_MODEL}")
+        
+        logger.info("✅ Gemini AI Engine initialized")
     
     def generate_recipe(self, category: str) -> Optional[Recipe]:
         try:
-            logger.info(f"🤖 Generating recipe | Category: {category}")
+            logger.info(f"🤖 Generating recipe for: {category}")
             
-            prompt = f"""أنت شيف محترف متخصص في **{category}** وخبير SEO.
-
-**مهمتك**: إنشاء وصفة حصرية وفريدة في فئة "{category}" باللغة العربية.
-
-**المتطلبات**:
-1. الأصالة والإبداع
-2. {config.MIN_RECIPE_INGREDIENTS}+ مكونات مفصلة
-3. {config.MIN_RECIPE_STEPS}+ خطوات واضحة
-4. استخدام كلمات مفتاحية: {', '.join(config.PRIMARY_KEYWORDS[:3])}
-5. المحتوى ~{config.TARGET_WORD_COUNT} كلمة
-
-**قالب JSON** (بدون أي نص إضافي):
-```json
-{{
-  "title": "عنوان جذاب يحتوي كلمة مفتاحية",
-  "description": "وصف شامل 200-300 كلمة",
-  "ingredients": ["مكون 1 مفصل", "مكون 2...", "..."],
-  "steps": ["خطوة 1 مفصلة", "خطوة 2...", "..."],
-  "prep_time": 30,
-  "cook_time": 45,
-  "servings": 6,
-  "difficulty": "متوسط",
-  "meta_description": "وصف مختصر {config.META_DESCRIPTION_LENGTH} حرف",
-  "keywords": ["كلمة1", "كلمة2", "..."],
-  "tags": ["وسم1", "وسم2", "..."]
-}}
-```
-
-ابدأ:"""
+            prompt = self._build_prompt(category)
             
-            response = self.model.generate_content(prompt, request_options={"timeout": 60})
+            response = self.model.generate_content(prompt)
             
             if not response or not response.text:
+                logger.error("❌ Empty response from Gemini")
                 return None
             
-            recipe_data = self._extract_json(response.text)
-            if not recipe_data:
-                return None
+            recipe = self._parse_response(response.text, category)
             
-            recipe = self._build_recipe(recipe_data, category)
-            logger.info(f"✅ Recipe generated: {recipe.title}")
-            return recipe
+            if recipe:
+                logger.info(f"✅ Generated: {recipe.title}")
+                return recipe
+            
+            return None
             
         except Exception as e:
             logger.error(f"❌ Generation failed: {e}")
             return None
     
-    def _extract_json(self, text: str) -> Optional[Dict]:
-        try:
-            text = re.sub(r'```json\s*', '', text)
-            text = re.sub(r'```\s*', '', text)
-            json_match = re.search(r'\{[\s\S]*\}', text)
-            if json_match:
-                return json.loads(json_match.group(0))
-            return json.loads(text)
-        except:
-            return None
+    def _build_prompt(self, category: str) -> str:
+        return f"""أنت طاهٍ محترف ومبدع متخصص في {category}.
+
+أنشئ وصفة طبخ احترافية وجذابة بالمواصفات التالية:
+
+المتطلبات:
+- العنوان: جذاب ومحفز، يحتوي على كلمات مفتاحية SEO
+- الوصف: مشوق ومغري (100-150 كلمة)
+- المقادير: {config.MIN_RECIPE_INGREDIENTS}+ عناصر بتفاصيل دقيقة
+- الخطوات: {config.MIN_RECIPE_STEPS}+ خطوات واضحة ومفصلة
+- الكلمات: {config.TARGET_WORD_COUNT}+ كلمة إجمالاً
+
+تنسيق JSON:
+{{
+  "title": "عنوان الوصفة الجذاب",
+  "description": "وصف مشوق ومفصل",
+  "ingredients": ["مقدار 1", "مقدار 2", ...],
+  "steps": ["خطوة 1 مفصلة", "خطوة 2 مفصلة", ...],
+  "prep_time": رقم_بالدقائق,
+  "cook_time": رقم_بالدقائق,
+  "servings": رقم,
+  "difficulty": "سهل/متوسط/صعب",
+  "keywords": ["كلمة1", "كلمة2", ...],
+  "tags": ["وسم1", "وسم2", ...]
+}}
+
+ملاحظات:
+- استخدم لغة عربية فصحى سلسة
+- أضف نصائح احترافية في الخطوات
+- اجعل الوصفة عملية وقابلة للتطبيق
+- ركز على الكلمات المفتاحية: {', '.join(config.PRIMARY_KEYWORDS[:3])}
+
+أنشئ الآن وصفة متميزة في فئة: {category}"""
     
-    def _build_recipe(self, data: Dict, category: str) -> Recipe:
-        word_count = (
-            len(data.get('description', '').split()) +
-            sum(len(i.split()) for i in data.get('ingredients', [])) +
-            sum(len(s.split()) for s in data.get('steps', []))
-        )
-        
-        return Recipe(
-            title=data.get('title', 'وصفة لذيذة'),
-            category=category,
-            description=data.get('description', ''),
-            ingredients=data.get('ingredients', []),
-            steps=data.get('steps', []),
-            prep_time=data.get('prep_time', 30),
-            cook_time=data.get('cook_time', 45),
-            servings=data.get('servings', 4),
-            difficulty=data.get('difficulty', 'متوسط'),
-            meta_description=data.get('meta_description', data.get('description', '')[:160]),
-            keywords=data.get('keywords', []),
-            tags=data.get('tags', []),
-            word_count=word_count
-        )
+    def _parse_response(self, text: str, category: str) -> Optional[Recipe]:
+        try:
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if not json_match:
+                logger.error("❌ No JSON found in response")
+                return None
+            
+            data = json.loads(json_match.group())
+            
+            recipe = Recipe(
+                title=data.get('title', ''),
+                category=category,
+                description=data.get('description', ''),
+                ingredients=data.get('ingredients', []),
+                steps=data.get('steps', []),
+                prep_time=int(data.get('prep_time', 30)),
+                cook_time=int(data.get('cook_time', 30)),
+                servings=int(data.get('servings', 4)),
+                difficulty=data.get('difficulty', 'متوسط'),
+                keywords=data.get('keywords', []),
+                tags=data.get('tags', [category])
+            )
+            
+            full_text = f"{recipe.title} {recipe.description} " + \
+                       " ".join(recipe.ingredients) + " ".join(recipe.steps)
+            recipe.word_count = len(full_text.split())
+            
+            return recipe
+            
+        except Exception as e:
+            logger.error(f"❌ Parsing failed: {e}")
+            return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SEO OPTIMIZER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SEOOptimizer:
-    """محسّن SEO"""
+    """محسّن SEO للوصفات"""
     
-    STOP_WORDS = {'في', 'من', 'إلى', 'على', 'عن', 'مع', 'هذا', 'التي', 'أن', 'كان'}
-    
-    def analyze_recipe(self, recipe: Recipe) -> Dict:
-        analysis = {'score': 0.0, 'issues': [], 'recommendations': []}
-        
-        score = 100.0
-        
-        # العنوان
-        if len(recipe.title) < 30:
-            analysis['issues'].append("العنوان قصير")
-            score -= 20
-        
-        title_lower = recipe.title.lower()
-        kw_in_title = sum(1 for kw in config.PRIMARY_KEYWORDS if kw in title_lower)
-        if kw_in_title == 0:
-            analysis['issues'].append("لا كلمات مفتاحية في العنوان")
-            score -= 30
-        
-        # المحتوى
-        if recipe.word_count < config.TARGET_WORD_COUNT * 0.7:
-            analysis['issues'].append(f"المحتوى قصير ({recipe.word_count})")
-            score -= 25
-        
-        # البنية
-        if len(recipe.ingredients) < config.MIN_RECIPE_INGREDIENTS:
-            analysis['issues'].append("عدد المكونات قليل")
-            score -= 20
-        
-        if len(recipe.steps) < config.MIN_RECIPE_STEPS:
-            analysis['issues'].append("عدد الخطوات قليل")
-            score -= 20
-        
-        # Meta
-        if not recipe.meta_description:
-            analysis['issues'].append("Meta Description مفقود")
-            score -= 30
-        
-        analysis['score'] = max(score, 0.0)
-        recipe.seo_score = analysis['score']
-        
-        logger.info(f"📊 SEO Score: {analysis['score']:.1f}/100")
-        return analysis
+    def __init__(self):
+        logger.info("✅ SEO Optimizer initialized")
     
     def optimize_for_seo(self, recipe: Recipe) -> Recipe:
-        if not recipe.meta_description:
-            recipe.meta_description = recipe.description[:config.META_DESCRIPTION_LENGTH]
+        recipe.meta_description = self._generate_meta_description(recipe)
         
-        if len(recipe.keywords) < 5:
+        if not recipe.keywords:
             recipe.keywords = self._extract_keywords(recipe)
         
-        if len(recipe.tags) < 5:
-            recipe.tags = self._generate_tags(recipe)
+        if config.ENABLE_SCHEMA_MARKUP:
+            pass
         
         return recipe
     
+    def _generate_meta_description(self, recipe: Recipe) -> str:
+        desc = recipe.description[:config.META_DESCRIPTION_LENGTH - 3]
+        if len(recipe.description) > config.META_DESCRIPTION_LENGTH - 3:
+            desc += "..."
+        return desc
+    
     def _extract_keywords(self, recipe: Recipe) -> List[str]:
-        keywords = []
-        full_text = f"{recipe.title} {recipe.description}".lower()
+        keywords = set()
         
         for kw in config.PRIMARY_KEYWORDS:
-            if kw in full_text:
-                keywords.append(kw)
+            if kw in recipe.title or kw in recipe.description:
+                keywords.add(kw)
         
-        keywords.append(recipe.category)
-        return list(set(keywords))[:10]
+        keywords.add(recipe.category)
+        keywords.add(recipe.title.split()[0] if recipe.title.split() else "")
+        
+        return list(keywords)[:10]
     
-    def _generate_tags(self, recipe: Recipe) -> List[str]:
-        tags = [
-            recipe.category.replace(' ', '_'),
-            f"وصفات_{recipe.difficulty}",
-            "وصفات_منزلية", "طبخ_سهل", "مطبخ_عربي"
-        ]
+    def analyze_recipe(self, recipe: Recipe) -> Dict:
+        score = 0.0
+        factors = {}
         
-        total_time = recipe.prep_time + recipe.cook_time
-        if total_time < 30:
-            tags.append("وصفات_سريعة")
+        if len(recipe.title) >= 30 and len(recipe.title) <= 70:
+            score += 20
+            factors['title_length'] = "✅ مثالي"
+        else:
+            factors['title_length'] = "⚠️ قصير/طويل"
         
-        return tags[:10]
+        if recipe.word_count >= config.TARGET_WORD_COUNT:
+            score += 25
+            factors['word_count'] = f"✅ {recipe.word_count} كلمة"
+        else:
+            factors['word_count'] = f"⚠️ {recipe.word_count} كلمة"
+        
+        if len(recipe.ingredients) >= config.MIN_RECIPE_INGREDIENTS:
+            score += 15
+            factors['ingredients'] = f"✅ {len(recipe.ingredients)} عنصر"
+        
+        if len(recipe.steps) >= config.MIN_RECIPE_STEPS:
+            score += 15
+            factors['steps'] = f"✅ {len(recipe.steps)} خطوة"
+        
+        if len(recipe.keywords) >= 3:
+            score += 15
+            factors['keywords'] = f"✅ {len(recipe.keywords)} كلمة"
+        
+        if recipe.meta_description:
+            score += 10
+            factors['meta_desc'] = "✅ موجود"
+        
+        recipe.seo_score = score
+        
+        return {
+            'score': score,
+            'factors': factors,
+            'grade': 'ممتاز' if score >= 80 else 'جيد' if score >= 60 else 'مقبول'
+        }
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONTENT VALIDATOR
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ContentValidator:
-    """مُدقق الجودة"""
+    """مدقق جودة المحتوى"""
+    
+    def __init__(self):
+        logger.info("✅ Content Validator initialized")
     
     def validate(self, recipe: Recipe) -> Tuple[bool, List[str]]:
         errors = []
         
         if not recipe.title or len(recipe.title) < 10:
-            errors.append("العنوان قصير جداً")
-        
-        if not recipe.description or len(recipe.description) < 50:
-            errors.append("الوصف قصير جداً")
+            errors.append("❌ العنوان قصير جداً")
         
         if len(recipe.ingredients) < config.MIN_RECIPE_INGREDIENTS:
-            errors.append(f"المكونات قليلة ({len(recipe.ingredients)})")
+            errors.append(f"❌ المقادير قليلة (مطلوب {config.MIN_RECIPE_INGREDIENTS}+)")
         
         if len(recipe.steps) < config.MIN_RECIPE_STEPS:
-            errors.append(f"الخطوات قليلة ({len(recipe.steps)})")
+            errors.append(f"❌ الخطوات قليلة (مطلوب {config.MIN_RECIPE_STEPS}+)")
         
-        if recipe.prep_time <= 0 or recipe.cook_time <= 0:
-            errors.append("الأوقات غير صحيحة")
+        if recipe.word_count < config.TARGET_WORD_COUNT * 0.7:
+            errors.append(f"❌ عدد الكلمات قليل ({recipe.word_count}/{config.TARGET_WORD_COUNT})")
+        
+        if not recipe.description or len(recipe.description) < 50:
+            errors.append("❌ الوصف قصير جداً")
         
         is_valid = len(errors) == 0
         
         if is_valid:
             logger.info("✅ Validation passed")
         else:
-            logger.error(f"❌ Validation failed: {len(errors)} errors")
+            logger.warning(f"⚠️ Validation issues: {len(errors)}")
         
         return is_valid, errors
 
@@ -486,54 +651,49 @@ class ContentValidator:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class BloggerPublisher:
-    """ناشر Blogger"""
+    """ناشر المحتوى على Blogger"""
     
     def __init__(self):
         self.blog_id = config.BLOGGER_BLOG_ID
-        self.credentials = None
-        self.service = None
-        self._authenticate()
+        self.credentials = self._get_credentials()
+        self.service = build('blogger', 'v3', credentials=self.credentials)
         logger.info("✅ Blogger Publisher initialized")
     
-    def _authenticate(self):
-        token_path = config.CREDENTIALS_PATH
+    def _get_credentials(self) -> Credentials:
+        creds = None
         
-        if token_path.exists():
+        if config.CREDENTIALS_PATH.exists():
             try:
-                with open(token_path, 'r') as f:
-                    token_data = json.load(f)
-                    self.credentials = Credentials.from_authorized_user_info(
-                        token_data, config.BLOGGER_SCOPES
+                with open(config.CREDENTIALS_PATH, 'r') as token:
+                    creds = Credentials.from_authorized_user_info(
+                        json.load(token), config.BLOGGER_SCOPES
                     )
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"⚠️ Token load failed: {e}")
         
-        if not self.credentials or not self.credentials.valid:
-            if self.credentials and self.credentials.expired and self.credentials.refresh_token:
-                try:
-                    self.credentials.refresh(Request())
-                except:
-                    self.credentials = None
-            
-            if not self.credentials:
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
                 flow = InstalledAppFlow.from_client_config(
                     {
                         "installed": {
                             "client_id": config.BLOGGER_CLIENT_ID,
                             "client_secret": config.BLOGGER_CLIENT_SECRET,
-                            "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"],
+                            "redirect_uris": ["http://localhost"],
                             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                             "token_uri": "https://oauth2.googleapis.com/token"
                         }
                     },
                     config.BLOGGER_SCOPES
                 )
-                self.credentials = flow.run_local_server(port=0)
+                creds = flow.run_local_server(port=0)
             
-            with open(token_path, 'w') as f:
-                f.write(self.credentials.to_json())
+            with open(config.CREDENTIALS_PATH, 'w') as token:
+                token.write(creds.to_json())
         
-        self.service = build('blogger', 'v3', credentials=self.credentials)
+        self.credentials = creds
+        return creds
     
     def publish_recipe(self, recipe: Recipe, as_draft: bool = None) -> Optional[str]:
         try:
@@ -646,16 +806,28 @@ class ZajmilAIChef:
     
     def __init__(self):
         logger.info("=" * 80)
-        logger.info("🚀 Initializing Zajmil AI Chef System")
+        logger.info("🚀 Initializing Zajmil AI Chef System [RENDER OPTIMIZED]")
         logger.info("=" * 80)
         
         config.validate()
+        
+        # حساب وعرض عدد المقالات الأمثل
+        self.optimal_article_count = config.calculate_optimal_article_count()
+        logger.info(f"📊 Dynamic Article Count Calculation:")
+        logger.info(f"   • Min Views Fetch Period: {config.MIN_VIEWS_FETCH_HOURS}h")
+        logger.info(f"   • Publish Interval: {config.PUBLISH_INTERVAL_HOURS}h")
+        logger.info(f"   • Safety Factor: {config.ARTICLE_SAFETY_FACTOR}")
+        logger.info(f"   • Optimal Article Count: {self.optimal_article_count} articles")
+        logger.info(f"   • Limits: {config.MIN_ARTICLES_LIMIT} - {config.MAX_ARTICLES_LIMIT}")
         
         self.gemini = GeminiChefEngine()
         self.publisher = BloggerPublisher()
         self.seo = SEOOptimizer()
         self.validator = ContentValidator()
         self.analytics = AnalyticsTracker()
+        
+        # عداد المقالات المنشورة في الجلسة الحالية
+        self.published_count = 0
         
         logger.info("✅ All components initialized")
         logger.info("=" * 80)
@@ -699,11 +871,15 @@ class ZajmilAIChef:
             logger.info("\n📊 Step 5/5: Tracking...")
             self.analytics.track_recipe(recipe, not config.DRAFT_MODE)
             
+            # تحديث العداد
+            self.published_count += 1
+            
             logger.info("=" * 80)
             logger.info("🎉 Workflow completed!")
             logger.info(f"📝 {recipe.title}")
             logger.info(f"🔍 SEO: {seo_analysis['score']:.1f}/100")
             logger.info(f"🔗 {recipe.post_url}")
+            logger.info(f"📈 Progress: {self.published_count}/{self.optimal_article_count}")
             logger.info("=" * 80)
             
             return True
@@ -713,23 +889,40 @@ class ZajmilAIChef:
             return False
     
     def run_continuous(self):
-        logger.info(f"\n⏰ Continuous mode | Interval: {config.PUBLISH_INTERVAL_HOURS}h")
+        logger.info(f"\n⏰ Continuous mode")
+        logger.info(f"   • Publish Interval: {config.PUBLISH_INTERVAL_HOURS}h")
+        logger.info(f"   • Target Article Count: {self.optimal_article_count}")
+        logger.info(f"   • Estimated Duration: {self.optimal_article_count * config.PUBLISH_INTERVAL_HOURS:.1f}h")
         
-        while True:
+        while self.published_count < self.optimal_article_count:
             try:
                 success = self.generate_and_publish()
                 
+                # التحقق من الوصول للحد المطلوب
+                if self.published_count >= self.optimal_article_count:
+                    logger.info("\n" + "=" * 80)
+                    logger.info("🎯 Target article count reached!")
+                    logger.info(f"   • Published: {self.published_count}/{self.optimal_article_count}")
+                    logger.info(f"   • Total Duration: {self.published_count * config.PUBLISH_INTERVAL_HOURS}h")
+                    logger.info("=" * 80)
+                    break
+                
+                # حساب وقت الانتظار
                 sleep_sec = config.PUBLISH_INTERVAL_HOURS * 3600
                 sleep_sec = int(sleep_sec * random.uniform(0.9, 1.1))
                 
+                remaining = self.optimal_article_count - self.published_count
                 logger.info(f"\n😴 Sleeping {sleep_sec/3600:.1f}h...")
+                logger.info(f"📊 Remaining: {remaining} articles")
                 time.sleep(sleep_sec)
                 
             except KeyboardInterrupt:
-                logger.info("\n⏹️ Stopped")
+                logger.info("\n⏹️ Stopped by user")
+                logger.info(f"📊 Published: {self.published_count}/{self.optimal_article_count}")
                 break
             except Exception as e:
                 logger.error(f"Error: {e}")
+                logger.info("⏸️ Pausing 1h before retry...")
                 time.sleep(3600)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -737,7 +930,30 @@ class ZajmilAIChef:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="Zajmil AI Chef")
+    parser = argparse.ArgumentParser(
+        description="Zajmil AI Chef - Render Optimized",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Environment Variables for Render:
+  GEMINI_API_KEY              Gemini AI API key (required)
+  BLOGGER_BLOG_ID             Blogger blog ID (required)
+  BLOGGER_CLIENT_ID           OAuth client ID (required)
+  BLOGGER_CLIENT_SECRET       OAuth client secret (required)
+  
+  MIN_VIEWS_FETCH_HOURS       Minimum hours to fetch views (default: 48)
+  PUBLISH_INTERVAL_HOURS      Publishing interval (default: 24)
+  ARTICLE_SAFETY_FACTOR       Safety factor for article count (default: 0.8)
+  MAX_ARTICLES_LIMIT          Maximum articles limit (default: 100)
+  MIN_ARTICLES_LIMIT          Minimum articles limit (default: 1)
+  
+  ENABLE_DYNAMIC_ARTICLE_COUNT Enable/disable dynamic calculation (default: true)
+  FIXED_ARTICLE_COUNT         Fixed count if dynamic disabled (default: 50)
+  
+  AUTO_PUBLISH                Auto-publish mode (default: true)
+  DRAFT_MODE                  Draft mode (default: false)
+        """
+    )
+    
     parser.add_argument('--mode', choices=['once', 'continuous', 'report'], default='once')
     parser.add_argument('--category', type=str, help='Specific category')
     parser.add_argument('--draft', action='store_true', help='Publish as draft')
@@ -758,13 +974,16 @@ def main():
             zajmil.run_continuous()
         
         elif args.mode == 'report':
-            logger.info("📊 Analytics coming soon...")
+            logger.info("📊 Analytics Report:")
+            logger.info(f"   • Total Published: {zajmil.analytics.data['statistics']['total_published']}")
+            logger.info(f"   • Avg SEO Score: {zajmil.analytics.data['statistics']['avg_seo_score']:.1f}")
+            logger.info(f"   • Categories: {zajmil.analytics.data['statistics']['categories_count']}")
     
     except KeyboardInterrupt:
-        logger.info("\n⏹️ Stopped")
+        logger.info("\n⏹️ Stopped by user")
         sys.exit(0)
     except Exception as e:
-        logger.critical(f"💥 Fatal: {e}")
+        logger.critical(f"💥 Fatal error: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
