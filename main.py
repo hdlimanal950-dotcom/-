@@ -609,10 +609,10 @@ class GeminiChefEngine:
     def __init__(self):
         # ═══ التهيئة المبسطة والموثوقة ═══
         
-        # الخطوة 1: تكوين API الأساسي فقط - السماح للمكتبة بإدارة الاتصال
-        genai.configure(api_key=config.GEMINI_API_KEY)
+        # الخطوة 1: تكوين API الأساسي مع transport='rest' للاستقرار
+        genai.configure(api_key=config.GEMINI_API_KEY, transport='rest')
         
-        logger.info("🔧 Gemini API configured with default settings")
+        logger.info("🔧 Gemini API configured with REST transport (Render-compatible)")
         
         # الخطوة 2: توحيد تسمية النموذج
         model_name = self._normalize_model_name(config.GEMINI_MODEL)
@@ -632,6 +632,7 @@ class GeminiChefEngine:
             logger.info(f"✅ Gemini AI Engine initialized successfully")
             logger.info(f"   • Model: {model_name}")
             logger.info(f"   • API Version: Auto-detected by Google AI library")
+            logger.info(f"   • Transport: REST (stable for Render)")
             logger.info(f"   • Temperature: {config.GEMINI_TEMPERATURE}")
             logger.info(f"   • Max Tokens: {config.GEMINI_MAX_TOKENS}")
             
