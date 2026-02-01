@@ -607,16 +607,12 @@ class GeminiChefEngine:
     """محرك توليد الوصفات بواسطة Gemini AI - محسّن للسرعة والاستقرار"""
     
     def __init__(self):
-        # ═══ التهيئة المحسّنة مع إجبار v1 API ═══
+        # ═══ التهيئة المبسطة والموثوقة ═══
         
-        # الخطوة 1: تكوين API مع التحقق الصارم
-        genai.configure(
-            api_key=config.GEMINI_API_KEY,
-            transport='rest',  # إجبار استخدام REST API
-            client_options={'api_endpoint': 'https://generativelanguage.googleapis.com'}  # التعديل: إزالة /v1
-        )
+        # الخطوة 1: تكوين API الأساسي فقط - السماح للمكتبة بإدارة الاتصال
+        genai.configure(api_key=config.GEMINI_API_KEY)
         
-        logger.info("🔧 Gemini API configured with default endpoint")
+        logger.info("🔧 Gemini API configured with default settings")
         
         # الخطوة 2: توحيد تسمية النموذج
         model_name = self._normalize_model_name(config.GEMINI_MODEL)
@@ -635,7 +631,7 @@ class GeminiChefEngine:
             )
             logger.info(f"✅ Gemini AI Engine initialized successfully")
             logger.info(f"   • Model: {model_name}")
-            logger.info(f"   • API Version: Auto-detected by library")
+            logger.info(f"   • API Version: Auto-detected by Google AI library")
             logger.info(f"   • Temperature: {config.GEMINI_TEMPERATURE}")
             logger.info(f"   • Max Tokens: {config.GEMINI_MAX_TOKENS}")
             
