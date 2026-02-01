@@ -613,7 +613,7 @@ class GeminiChefEngine:
         genai.configure(
             api_key=config.GEMINI_API_KEY,
             transport='rest',  # إجبار استخدام REST API
-            client_options={'api_endpoint': 'https://generativelanguage.googleapis.com'}  # Endpoint الصريح
+            client_options={'api_endpoint': 'https://generativelanguage.googleapis.com/v1'}  # التعديل هنا: v1 بدلاً من v1beta
         )
         
         logger.info("🔧 Gemini API configured with v1 stable endpoint")
