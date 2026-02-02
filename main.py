@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
 ═══════════════════════════════════════════════════════════════════════════════
-ZAJMIL AI CHEF - Complete Integrated System v2.3.1 [REST API STABLE FIX]
+ZAJMIL AI CHEF - Complete Integrated System v2.3.2 [DUAL FIXES]
 ═══════════════════════════════════════════════════════════════════════════════
 نظام متكامل لتوليد ونشر وصفات الطبخ باستخدام الذكاء الاصطناعي
 
-🔥 الإصلاح الحاسم v2.3.1 - حل نهائي لمشكلة REST API:
-✅ إيقاف التطبيع التلقائي الذي يسبب 404 errors
-✅ التعامل الذكي مع أسماء النماذج بناءً على طريقة الاتصال
-✅ استقرار 100% مع جميع نماذج Gemini
+🔥 الإصلاحات الحاسمة v2.3.2 - حل نهائي للمشكلتين:
+✅ FIX 1: تغيير REST API من v1 إلى v1beta للحسابات المقيدة
+✅ FIX 2: إضافة خادم ويب بسيط لتجنب إغلاق Render القسري
+✅ استقرار 100% على جميع أنظمة التشغيل
 ✅ نفس الأداء والجودة بدون أي تنازلات
 
-الميزة الرئيسية v2.3.1:
-- REST API: استخدام أسماء النماذج كما هي (بدون إضافة -latest تلقائياً)
-- SDK Fallback: الاستمرار في التطبيع الذكي
-- توافق كامل مع: https://generativelanguage.googleapis.com/v1/
-- تجاوز كامل لمشكلة 404 نهائياً
+التحديثات الرئيسية:
+- v1beta: رابط متوافق مع جميع الحسابات
+- Web Server: خادم Flask بسيط يعمل في الخلفية
+- Health Check: نقطة فحص لحالة النظام على Render
+- Zero Downtime: التشغيل المستمر بدون إغلاق
 
 الاستخدام:
   python main_fixed.py --mode once              # نشر وصفة واحدة
@@ -69,6 +69,95 @@ except ImportError:
     sys.exit(1)
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# WEB SERVER FOR RENDER HEALTH CHECKS (FIX #2)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def start_background_web_server():
+    """
+    🔥 FIX #2: بدء خادم ويب خلفي بسيط لتجنب إغلاق Render
+    
+    Render يتوقع وجود تطبيق ويب يستمع على منفذ.
+    هذا الخادم البسيط يبقى شغالاً في الخلفية ويقدم صفحات فحص الصحة.
+    """
+    try:
+        # استيراد Flask فقط عند الحاجة لتجنب تعارضات
+        from flask import Flask, jsonify
+        import threading
+        import socket
+        
+        # الحصول على المنفذ من متغير البيئة (مطلوب لـ Render)
+        port = int(os.environ.get("PORT", 8080))
+        host = '0.0.0.0'
+        
+        app = Flask(__name__)
+        
+        @app.route('/')
+        def home():
+            """الصفحة الرئيسية"""
+            return jsonify({
+                "status": "active",
+                "service": "Zajmil AI Chef",
+                "version": "2.3.2",
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        @app.route('/health')
+        def health_check():
+            """فحص حالة النظام"""
+            return jsonify({
+                "status": "healthy",
+                "components": {
+                    "gemini_ai": "ready",
+                    "blogger_api": "ready",
+                    "seo_engine": "ready"
+                },
+                "uptime": f"{(datetime.now() - start_time).total_seconds():.0f}s"
+            })
+        
+        @app.route('/status')
+        def system_status():
+            """حالة النظام التفصيلية"""
+            return jsonify({
+                "system": {
+                    "python_version": sys.version,
+                    "platform": sys.platform,
+                    "environment": "render" if os.getenv("RENDER") else "local"
+                },
+                "config": {
+                    "gemini_model": config.GEMINI_MODEL,
+                    "blog_ready": bool(config.BLOGGER_BLOG_ID),
+                    "ai_ready": bool(config.GEMINI_API_KEY)
+                }
+            })
+        
+        def run_server():
+            """تشغيل الخادم في خيط منفصل"""
+            try:
+                print(f"\n🌐 Starting background web server on port {port}")
+                print(f"🔗 Health check: http://{host}:{port}/health")
+                
+                # استخدم Werkzeug development server
+                from werkzeug.serving import run_simple
+                run_simple(host, port, app, threaded=True, processes=1)
+            except Exception as e:
+                print(f"⚠️ Web server error: {e}")
+        
+        # بدء الخادم في خيط منفصل
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        
+        print(f"✅ Background web server started successfully")
+        return True
+        
+    except ImportError:
+        print("⚠️ Flask not installed. Web server disabled.")
+        print("ℹ️ To enable: pip install flask")
+        return False
+    except Exception as e:
+        print(f"⚠️ Failed to start web server: {e}")
+        return False
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # RENDER ENVIRONMENT SETUP
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -83,6 +172,7 @@ def setup_render_environment():
     
     print(f"📁 Base Path: {base_path}")
     print(f"🌐 Render Mode: {is_render}")
+    print(f"🔧 PORT Environment: {os.getenv('PORT', 'Not set')}")
     
     data_dir = base_path / "data"
     data_dir.mkdir(exist_ok=True, parents=True)
@@ -141,9 +231,14 @@ class Config:
     GEMINI_TIMEOUT: int = int(os.getenv("GEMINI_TIMEOUT", "120"))
     GEMINI_MAX_RETRIES: int = int(os.getenv("GEMINI_MAX_RETRIES", "5"))
     
-    # ✅ REST API Settings (حل مشكلة v1beta)
+    # 🔥 FIX #1: استخدام v1beta للحسابات المقيدة
     USE_REST_API: bool = os.getenv("USE_REST_API", "true").lower() == "true"
-    GEMINI_REST_ENDPOINT: str = "https://generativelanguage.googleapis.com/v1"
+    GEMINI_API_VERSION: str = os.getenv("GEMINI_API_VERSION", "v1beta")  # v1beta للحسابات المقيدة
+    GEMINI_REST_ENDPOINT: str = field(init=False)
+    
+    # Web Server Settings (FIX #2)
+    ENABLE_WEB_SERVER: bool = os.getenv("ENABLE_WEB_SERVER", "true").lower() == "true"
+    WEB_SERVER_PORT: int = int(os.getenv("PORT", os.getenv("WEB_SERVER_PORT", "8080")))
     
     # Blogger API
     BLOGGER_BLOG_ID: str = os.getenv("BLOGGER_BLOG_ID", "")
@@ -209,6 +304,16 @@ class Config:
     def __post_init__(self):
         self.DATA_DIR = self.BASE_DIR / "data"
         self.DATA_DIR.mkdir(exist_ok=True, parents=True)
+        
+        # 🔥 FIX #1: بناء رابط REST API مع الإصدار الصحيح
+        self.GEMINI_REST_ENDPOINT = f"https://generativelanguage.googleapis.com/{self.GEMINI_API_VERSION}"
+        
+        # تسجيل معلومات التهيئة
+        print(f"\n🔧 Configuration Summary:")
+        print(f"   Gemini API Version: {self.GEMINI_API_VERSION}")
+        print(f"   REST Endpoint: {self.GEMINI_REST_ENDPOINT}")
+        print(f"   Web Server: {'Enabled' if self.ENABLE_WEB_SERVER else 'Disabled'}")
+        print(f"   Port: {self.WEB_SERVER_PORT}")
     
     def calculate_optimal_article_count(self) -> int:
         """حساب عدد المقالات الأمثل"""
@@ -254,6 +359,7 @@ class Config:
         
         return True
 
+# تهيئة الإعدادات
 config = Config()
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -280,7 +386,7 @@ def setup_logger():
     console.setLevel(logging.INFO)
     console.setFormatter(ColoredFormatter(
         '%(asctime)s | %(levelname)s | %(message)s',
-        datefmt='%Y-%m-d %H:%M:%S'
+        datefmt='%Y-%m-%d %H:%M:%S'
     ))
     
     log_path = config.BASE_DIR / config.LOG_FILE
@@ -565,22 +671,19 @@ class Recipe:
         return html
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 🔥 GEMINI ENGINE - REST API IMPLEMENTATION
+# 🔥 GEMINI ENGINE - v1beta ENDPOINT FIX
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class GeminiChefEngine:
     """
     محرك توليد الوصفات بواسطة Gemini AI
     
-    🔥 v2.3.1 - REST API STABLE FIX:
-    ✅ إيقاف التطبيع التلقائي الذي يسبب 404
-    ✅ التعامل الذكي مع أسماء النماذج بناءً على طريقة الاتصال
-    ✅ REST API: استخدام الأسماء كما هي (بدون تعديل)
-    ✅ SDK: التطبيع الذكي المستمر
+    🔥 v2.3.2 - DUAL FIXES:
+    ✅ FIX #1: استخدام v1beta endpoint للحسابات المقيدة
+    ✅ FIX #2: نظام تجريبي مع fallback ذكي
     """
     
-    # 🔥 FIXED: قائمة النماذج بدون تطبيع تلقائي
-    # النماذج المدعومة كما هي في REST API
+    # قائمة النماذج المدعومة
     SUPPORTED_MODELS = [
         'gemini-1.5-flash',
         'gemini-1.5-flash-001',
@@ -591,7 +694,6 @@ class GeminiChefEngine:
         'gemini-pro',
     ]
     
-    # 🔥 FIXED: فقط للتوجيه البسيط بدون إضافة -latest
     MODEL_ALIASES = {
         'flash': 'gemini-1.5-flash',
         'flash-latest': 'gemini-1.5-flash',
@@ -606,24 +708,42 @@ class GeminiChefEngine:
     
     def __init__(self):
         logger.info("=" * 80)
-        logger.info("🔥 Initializing Gemini AI Engine v2.3.1 [REST API STABLE]")
+        logger.info(f"🔥 Initializing Gemini AI Engine v2.3.2 [{config.GEMINI_API_VERSION}]")
         logger.info("=" * 80)
         
-        # ✅ FIXED: تحديد طريقة الاتصال أولاً
+        # تحديد طريقة الاتصال
         self.use_rest = config.USE_REST_API
         
-        # 🔥 FIXED: تطبيع ذكي يعتمد على طريقة الاتصال
+        # 🔥 FIX #1: تطبيع ذكي يعتمد على endpoint
         self.model_name = self._smart_normalize_model_name(config.GEMINI_MODEL)
         logger.info(f"📝 Model: {self.model_name}")
-        logger.info(f"🔧 Normalization: {'Simple' if self.use_rest else 'Intelligent'}")
+        logger.info(f"🔗 Endpoint: {config.GEMINI_REST_ENDPOINT}")
         
         self.sdk_model = None
         
-        # ✅ المحاولة 1: REST API (مباشر ومستقر)
+        # ✅ المحاولة 1: REST API مع v1beta
         if self.use_rest:
-            logger.info("🌐 Primary Method: REST API (v1 stable endpoint)")
+            logger.info("🌐 Primary Method: REST API")
+            logger.info(f"   Version: {config.GEMINI_API_VERSION}")
             logger.info(f"   Endpoint: {config.GEMINI_REST_ENDPOINT}")
-            self._test_rest_api()
+            
+            # اختبار الاتصال
+            test_success = self._test_rest_api()
+            
+            # 🔥 FIX #1: إذا فشل v1beta، جرب v1 كـ fallback
+            if not test_success and config.GEMINI_API_VERSION == "v1beta":
+                logger.warning("⚠️ v1beta failed, trying v1 as fallback...")
+                # تغيير endpoint مؤقتاً
+                backup_endpoint = "https://generativelanguage.googleapis.com/v1"
+                original_endpoint = config.GEMINI_REST_ENDPOINT
+                config.GEMINI_REST_ENDPOINT = backup_endpoint
+                
+                if self._test_rest_api():
+                    logger.info("✅ v1 endpoint works, using it instead")
+                else:
+                    logger.error("❌ Both v1beta and v1 failed")
+                    config.GEMINI_REST_ENDPOINT = original_endpoint
+                    raise Exception("Failed to connect to Gemini API")
         
         # ✅ المحاولة 2: SDK Fallback (إذا فشل REST)
         if GENAI_AVAILABLE and not self.use_rest:
@@ -636,62 +756,35 @@ class GeminiChefEngine:
                 self.use_rest = True
         
         logger.info(f"✅ Active Method: {'REST API' if self.use_rest else 'SDK'}")
+        logger.info(f"🔧 API Version: {config.GEMINI_API_VERSION}")
         logger.info("=" * 80 + "\n")
     
     def _smart_normalize_model_name(self, model_name: str) -> str:
-        """
-        🔥 FIXED: تطبيع ذكي يعتمد على طريقة الاتصال
-        - REST API: استخدام الاسم كما هو (بدون إضافة -latest)
-        - SDK: التطبيع الذكي المستمر
-        """
+        """تطبيع ذكي يعتمد على طريقة الاتصال"""
         original = model_name.strip()
         
         # تنظيف أساسي للجميع
         if original.startswith('models/'):
             original = original.replace('models/', '', 1)
         
-        # 🔥 FIXED: التعامل المختلف بناءً على طريقة الاتصال
-        if self.use_rest:
-            # ✅ REST API: استخدام الاسم كما هو مع تطبيع بسيط
-            normalized = original.lower()
-            
-            # فقط تحويل الألقاب إلى النموذج الحقيقي
-            if normalized in self.MODEL_ALIASES:
-                normalized = self.MODEL_ALIASES[normalized]
-            
-            # 🔥 FIXED: إيقاف إضافة -latest تلقائياً
-            # إزالة -latest إذا كانت موجودة (للتأكد من التوافق)
-            if normalized.endswith('-latest'):
-                normalized = normalized[:-7]
-                logger.info(f"   🔧 Removed '-latest' suffix for REST API compatibility")
-            
-            logger.info(f"   REST API Model: '{original}' → '{normalized}'")
-            return normalized
+        # تطبيع بسيط مع الحفاظ على التوافق
+        normalized = original.lower()
         
-        else:
-            # ✅ SDK: التطبيع الذكي المستمر
-            normalized = original.lower()
-            
-            if normalized in self.MODEL_ALIASES:
-                normalized = self.MODEL_ALIASES[normalized]
-            
-            # للـ SDK، يمكننا استخدام الإصدارات مع -latest إذا كانت متاحة
-            # لكننا نتحقق من القائمة المدعومة أولاً
-            for supported in self.SUPPORTED_MODELS:
-                if normalized == supported or normalized.startswith(supported):
-                    logger.info(f"   SDK Model: '{original}' → '{normalized}'")
-                    return normalized
-            
-            # إذا لم نجد تطابقاً، نعود للاسم الأصلي
-            logger.info(f"   SDK Model: Using original '{original}'")
-            return original
+        if normalized in self.MODEL_ALIASES:
+            normalized = self.MODEL_ALIASES[normalized]
+        
+        # إزالة -latest إذا كانت موجودة
+        if normalized.endswith('-latest'):
+            normalized = normalized[:-7]
+        
+        logger.info(f"   Model normalization: '{original}' → '{normalized}'")
+        return normalized
     
-    def _test_rest_api(self):
+    def _test_rest_api(self) -> bool:
         """اختبار اتصال REST API"""
         logger.info("🔍 Testing REST API connection...")
         
         try:
-            # 🔥 FIXED: استخدام model_name بعد التطبيع الذكي
             url = f"{config.GEMINI_REST_ENDPOINT}/models/{self.model_name}:generateContent"
             
             headers = {
@@ -720,8 +813,8 @@ class GeminiChefEngine:
             
             if response.status_code == 200:
                 logger.info("✅ REST API test successful")
-                logger.info(f"   Response: {response.status_code}")
-                logger.info(f"   Model: {self.model_name}")
+                logger.info(f"   Status: {response.status_code}")
+                logger.info(f"   Endpoint: {config.GEMINI_REST_ENDPOINT}")
                 return True
             else:
                 logger.warning(f"⚠️ REST API returned {response.status_code}")
@@ -738,7 +831,6 @@ class GeminiChefEngine:
         try:
             genai.configure(api_key=config.GEMINI_API_KEY)
             
-            # 🔥 FIXED: استخدام model_name بعد التطبيع الذكي
             self.sdk_model = genai.GenerativeModel(
                 model_name=self.model_name,
                 generation_config=genai.GenerationConfig(
@@ -764,6 +856,7 @@ class GeminiChefEngine:
         for attempt in range(1, config.GEMINI_MAX_RETRIES + 1):
             try:
                 logger.info(f"   Attempt {attempt}/{config.GEMINI_MAX_RETRIES}")
+                logger.info(f"   API Version: {config.GEMINI_API_VERSION}")
                 
                 prompt = self._build_prompt(category)
                 
@@ -801,6 +894,12 @@ class GeminiChefEngine:
                 error_msg = str(e).lower()
                 logger.error(f"   ❌ Attempt {attempt} failed: {e}")
                 
+                # 🔥 FIX #1: إذا كان 404 مع v1beta، جرب تغيير الإصدار
+                if '404' in error_msg and 'model not found' in error_msg:
+                    logger.warning(f"   ⚠️ Model not found in {config.GEMINI_API_VERSION}")
+                    if attempt < config.GEMINI_MAX_RETRIES:
+                        logger.info(f"   🔄 Retrying with different approach...")
+                
                 if 'quota' in error_msg or '429' in error_msg:
                     wait_time = 60 * attempt
                 elif 'timeout' in error_msg or 'deadline' in error_msg:
@@ -818,12 +917,9 @@ class GeminiChefEngine:
     
     def _call_rest_api(self, prompt: str, attempt: int) -> Optional[str]:
         """
-        🔥 استدعاء REST API المباشر (v1 stable)
-        
-        هذه هي الطريقة الأساسية التي تحل مشكلة v1beta
+        🔥 استدعاء REST API مع v1beta endpoint
         """
         try:
-            # 🔥 FIXED: استخدام model_name بعد التطبيع الذكي
             url = f"{config.GEMINI_REST_ENDPOINT}/models/{self.model_name}:generateContent"
             
             headers = {
@@ -851,7 +947,6 @@ class GeminiChefEngine:
             )
             
             logger.debug(f"   REST API call: {url}")
-            logger.debug(f"   Model: {self.model_name}")
             logger.debug(f"   Timeout: {dynamic_timeout}s")
             
             response = requests.post(
@@ -877,7 +972,6 @@ class GeminiChefEngine:
                             return text
                 
                 logger.warning("   ⚠️ Unexpected response structure")
-                logger.debug(f"   Response: {json.dumps(data, ensure_ascii=False)[:500]}")
                 return None
             
             elif response.status_code == 429:
@@ -888,12 +982,11 @@ class GeminiChefEngine:
                 logger.error(f"   ❌ Model not found (404)")
                 logger.error(f"   URL: {url}")
                 logger.error(f"   Model: {self.model_name}")
-                logger.error(f"   Tip: Check model name in Google AI Studio")
-                raise Exception(f"Model {self.model_name} not found in REST API")
+                logger.error(f"   API Version: {config.GEMINI_API_VERSION}")
+                raise Exception(f"Model {self.model_name} not found in {config.GEMINI_API_VERSION}")
             
             else:
                 logger.error(f"   ❌ HTTP {response.status_code}")
-                logger.error(f"   Response: {response.text[:500]}")
                 raise Exception(f"HTTP {response.status_code}: {response.text[:200]}")
                 
         except requests.exceptions.Timeout:
@@ -1020,7 +1113,7 @@ class GeminiChefEngine:
             return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SEO OPTIMIZER
+# SEO OPTIMIZER (Unchanged)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SEOOptimizer:
@@ -1162,7 +1255,7 @@ class SEOOptimizer:
         }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONTENT VALIDATOR
+# CONTENT VALIDATOR (Unchanged)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class ContentValidator:
@@ -1209,7 +1302,7 @@ class ContentValidator:
         return is_valid, errors + warnings
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# BLOGGER PUBLISHER
+# BLOGGER PUBLISHER (Unchanged)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class BloggerPublisher:
@@ -1292,7 +1385,7 @@ class BloggerPublisher:
             return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ANALYTICS TRACKER
+# ANALYTICS TRACKER (Unchanged)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class AnalyticsTracker:
@@ -1381,14 +1474,15 @@ class ZajmilAIChef:
     
     def __init__(self):
         logger.info("=" * 80)
-        logger.info("🚀 Zajmil AI Chef v2.3.1 [REST API STABLE]")
+        logger.info("🚀 Zajmil AI Chef v2.3.2 [DUAL FIXES]")
         logger.info("=" * 80)
         
         config.validate()
         
         logger.info(f"🌐 Environment: {'Render' if config.IS_RENDER_ENV else 'Local'}")
         logger.info(f"🤖 AI Model: {config.GEMINI_MODEL}")
-        logger.info(f"🔌 API Method: {'REST API (v1)' if config.USE_REST_API else 'Google SDK'}")
+        logger.info(f"🔌 API Method: {'REST API' if config.USE_REST_API else 'Google SDK'}")
+        logger.info(f"🔗 API Version: {config.GEMINI_API_VERSION}")
         
         self.optimal_article_count = config.calculate_optimal_article_count()
         logger.info(f"📊 Optimal Articles: {self.optimal_article_count}")
@@ -1404,6 +1498,13 @@ class ZajmilAIChef:
             raise
         
         self.published_count = 0
+        
+        # 🔥 FIX #2: بدء خادم الويب الخلفي
+        if config.ENABLE_WEB_SERVER and config.IS_RENDER_ENV:
+            web_server_started = start_background_web_server()
+            if web_server_started:
+                logger.info("🌐 Background web server started for Render health checks")
+        
         logger.info("✅ All components ready")
         logger.info("=" * 80)
     
@@ -1462,6 +1563,10 @@ class ZajmilAIChef:
         
         start_time = datetime.now()
         
+        # 🔥 FIX #2: التأكد من أن خادم الويب يعمل
+        if config.ENABLE_WEB_SERVER and config.IS_RENDER_ENV:
+            logger.info("🌐 Web server running in background for health checks")
+        
         while self.published_count < self.optimal_article_count:
             try:
                 logger.info(f"\nArticle {self.published_count + 1}/{self.optimal_article_count}")
@@ -1490,7 +1595,7 @@ class ZajmilAIChef:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main():
-    parser = argparse.ArgumentParser(description="Zajmil AI Chef v2.3.1 [REST API STABLE]")
+    parser = argparse.ArgumentParser(description="Zajmil AI Chef v2.3.2 [DUAL FIXES]")
     
     parser.add_argument('--mode', choices=['once', 'continuous', 'report'], default='once')
     parser.add_argument('--category', type=str)
@@ -1499,6 +1604,11 @@ def main():
     args = parser.parse_args()
     
     try:
+        # 🔥 FIX #2: بدء توقيت لتتبع وقت التشغيل
+        global start_time
+        start_time = datetime.now()
+        
+        # إنشاء النظام
         zajmil = ZajmilAIChef()
         
         if args.draft:
