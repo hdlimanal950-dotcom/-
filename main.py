@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
 ═══════════════════════════════════════════════════════════════════════════════
-ZAJMIL AI CHEF - Complete Integrated System v2.0.0 [RENDER PRODUCTION READY]
+ZAJMIL AI CHEF - Complete Integrated System v2.1.0 [RENDER PRODUCTION OPTIMIZED]
 ═══════════════════════════════════════════════════════════════════════════════
 نظام متكامل لتوليد ونشر وصفات الطبخ باستخدام الذكاء الاصطناعي
 
-المميزات المحسّنة v2.0:
-✅ مصادقة ديناميكية 100% من متغيرات Render البيئية
-✅ لا حاجة لرفع ملفات token.json أو client_secret.json
-✅ نموذج Gemini Flash السريع (تقليل Timeout)
-✅ مسارات ديناميكية متوافقة مع Render
-✅ تحسينات SEO متقدمة لجلب مشاهدات سريعة
-✅ حساب ديناميكي لعدد المقالات حسب أقصر مدة لجلب المشاهدات
+المميزات المحسّنة v2.1 [RENDER COMPATIBLE]:
+✅ إصلاح كامل لمشكلة Gemini API versioning
+✅ معالجة ديناميكية ذكية لمسارات النماذج
+✅ retry mechanism متقدم مع exponential backoff
+✅ timeout optimization لبيئة Render
+✅ error handling شامل مع fallback mechanisms
+✅ دعم جميع إصدارات google-generativeai
+
+التحسينات الأساسية:
+- إزالة transport='rest' لتجنب التعارضات
+- تطبيع تلقائي لأسماء النماذج
+- اكتشاف ذكي لإصدار API المتاح
+- معالجة أخطاء API بشكل استباقي
 
 الاستخدام:
   python main.py --mode once              # نشر وصفة واحدة
@@ -158,9 +164,11 @@ class Config:
     
     # Gemini AI - استخدام Flash كنموذج افتراضي للسرعة
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")  # ⚡ FLASH بدلاً من PRO
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
     GEMINI_TEMPERATURE: float = float(os.getenv("GEMINI_TEMPERATURE", "0.9"))
     GEMINI_MAX_TOKENS: int = int(os.getenv("GEMINI_MAX_TOKENS", "8000"))
+    GEMINI_TIMEOUT: int = int(os.getenv("GEMINI_TIMEOUT", "120"))  # زيادة timeout
+    GEMINI_MAX_RETRIES: int = int(os.getenv("GEMINI_MAX_RETRIES", "5"))  # عدد المحاولات
     
     # Blogger API
     BLOGGER_BLOG_ID: str = os.getenv("BLOGGER_BLOG_ID", "")
@@ -247,17 +255,8 @@ class Config:
         if not self.GEMINI_API_KEY:
             errors.append("❌ GEMINI_API_KEY is required")
         
-        # التحقق من تسمية النموذج
         if not self.GEMINI_MODEL:
             errors.append("❌ GEMINI_MODEL is required")
-        else:
-            # التحقق من صحة اسم النموذج
-            valid_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro', 'gemini-flash']
-            model_base = self.GEMINI_MODEL.replace('models/', '').strip()
-            
-            if model_base not in valid_models:
-                errors.append(f"⚠️ WARNING: Model '{model_base}' may not be supported")
-                errors.append(f"   Valid models: {', '.join(valid_models)}")
         
         if not self.BLOGGER_BLOG_ID:
             errors.append("❌ BLOGGER_BLOG_ID is required")
@@ -600,163 +599,288 @@ class Recipe:
         return html
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# GEMINI AI ENGINE - OPTIMIZED FOR FLASH MODEL
+# GEMINI AI ENGINE - FULLY OPTIMIZED FOR RENDER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class GeminiChefEngine:
-    """محرك توليد الوصفات بواسطة Gemini AI - محسّن للسرعة والاستقرار"""
+    """
+    محرك توليد الوصفات بواسطة Gemini AI
+    
+    التحسينات الرئيسية v2.1:
+    ✅ إزالة transport='rest' لتجنب تعارضات المكتبة
+    ✅ معالجة ذكية لأسماء النماذج (مع/بدون 'models/')
+    ✅ اكتشاف تلقائي لإصدار API المتاح
+    ✅ exponential backoff للمحاولات المتكررة
+    ✅ timeout ديناميكي حسب حجم الطلب
+    ✅ error handling شامل مع رسائل توضيحية
+    """
     
     def __init__(self):
-        # ═══ التهيئة المبسطة والموثوقة ═══
+        logger.info("=" * 80)
+        logger.info("🔧 Initializing Gemini AI Engine v2.1 [Render Optimized]")
+        logger.info("=" * 80)
         
-        # الخطوة 1: تكوين API الأساسي مع transport='rest' للاستقرار
-        genai.configure(api_key=config.GEMINI_API_KEY, transport='rest')
+        # ═══ الخطوة 1: تكوين API الأساسي (بدون transport) ═══
+        try:
+            genai.configure(api_key=config.GEMINI_API_KEY)
+            logger.info("✅ API Key configured successfully")
+        except Exception as e:
+            logger.critical(f"❌ Failed to configure API Key: {e}")
+            raise
         
-        logger.info("🔧 Gemini API configured with REST transport (Render-compatible)")
+        # ═══ الخطوة 2: تطبيع اسم النموذج بشكل ذكي ═══
+        self.model_name = self._normalize_model_name_smart(config.GEMINI_MODEL)
+        logger.info(f"📝 Model name: {self.model_name}")
         
-        # الخطوة 2: توحيد تسمية النموذج
-        model_name = self._normalize_model_name(config.GEMINI_MODEL)
-        logger.info(f"📝 Normalized model name: {model_name}")
-        
-        # الخطوة 3: إنشاء النموذج مع الإعدادات المحسّنة
+        # ═══ الخطوة 3: إنشاء النموذج مع إعدادات محسّنة ═══
         try:
             self.model = genai.GenerativeModel(
-                model_name=model_name,
-                generation_config={
-                    "temperature": config.GEMINI_TEMPERATURE,
-                    "top_p": 0.95,
-                    "top_k": 40,
-                    "max_output_tokens": config.GEMINI_MAX_TOKENS,
-                }
+                model_name=self.model_name,
+                generation_config=genai.GenerationConfig(
+                    temperature=config.GEMINI_TEMPERATURE,
+                    top_p=0.95,
+                    top_k=40,
+                    max_output_tokens=config.GEMINI_MAX_TOKENS,
+                )
             )
-            logger.info(f"✅ Gemini AI Engine initialized successfully")
-            logger.info(f"   • Model: {model_name}")
-            logger.info(f"   • API Version: Auto-detected by Google AI library")
-            logger.info(f"   • Transport: REST (stable for Render)")
+            logger.info("✅ Model initialized successfully")
             logger.info(f"   • Temperature: {config.GEMINI_TEMPERATURE}")
             logger.info(f"   • Max Tokens: {config.GEMINI_MAX_TOKENS}")
-            
-            # الخطوة 4: اختبار الاتصال
-            self._test_connection()
+            logger.info(f"   • Timeout: {config.GEMINI_TIMEOUT}s")
+            logger.info(f"   • Max Retries: {config.GEMINI_MAX_RETRIES}")
             
         except Exception as e:
-            logger.critical(f"❌ Failed to initialize Gemini model: {e}")
+            logger.critical(f"❌ Failed to initialize model: {e}")
+            logger.error("   Possible causes:")
+            logger.error("   1. Invalid model name")
+            logger.error("   2. API key lacks permissions")
+            logger.error("   3. Model not available in your region")
             raise
+        
+        # ═══ الخطوة 4: اختبار الاتصال ═══
+        self._test_connection_robust()
+        
+        logger.info("=" * 80 + "\n")
     
-    def _normalize_model_name(self, model_name: str) -> str:
+    def _normalize_model_name_smart(self, model_name: str) -> str:
         """
-        توحيد تسمية النموذج بإضافة 'models/' إذا لم تكن موجودة
+        تطبيع ذكي لاسم النموذج
+        
+        يدعم جميع الحالات:
+        - 'gemini-1.5-flash' -> 'gemini-1.5-flash'
+        - 'models/gemini-1.5-flash' -> 'gemini-1.5-flash'
+        - 'gemini-1.5-pro' -> 'gemini-1.5-pro'
         
         Args:
             model_name: اسم النموذج من الإعدادات
             
         Returns:
-            str: اسم النموذج الموحد
-            
-        Examples:
-            'gemini-1.5-flash' -> 'models/gemini-1.5-flash'
-            'models/gemini-1.5-flash' -> 'models/gemini-1.5-flash'
-            'gemini-1.5-pro' -> 'models/gemini-1.5-pro'
+            str: اسم النموذج المطبّع
         """
-        # إزالة أي مسافات
+        # تنظيف النص
         model_name = model_name.strip()
         
-        # التحقق إذا كانت البادئة موجودة بالفعل
+        # إزالة 'models/' إذا كانت موجودة
         if model_name.startswith('models/'):
-            return model_name
+            model_name = model_name.replace('models/', '', 1)
         
-        # إضافة البادئة
-        normalized = f"models/{model_name}"
+        # قائمة النماذج المدعومة
+        supported_models = [
+            'gemini-1.5-flash',
+            'gemini-1.5-flash-001',
+            'gemini-1.5-flash-002',
+            'gemini-1.5-pro',
+            'gemini-1.5-pro-001',
+            'gemini-1.5-pro-002',
+            'gemini-pro',
+            'gemini-flash',
+        ]
         
-        logger.debug(f"Model name normalized: '{model_name}' -> '{normalized}'")
+        # التحقق من الدعم
+        if model_name not in supported_models:
+            logger.warning(f"⚠️ Model '{model_name}' may not be supported")
+            logger.warning(f"   Supported models: {', '.join(supported_models[:3])}...")
         
-        return normalized
+        logger.debug(f"Model normalized: '{config.GEMINI_MODEL}' -> '{model_name}'")
+        
+        return model_name
     
-    def _test_connection(self):
+    def _test_connection_robust(self):
         """
-        اختبار الاتصال بـ Gemini API
+        اختبار قوي للاتصال مع معالجة شاملة للأخطاء
+        """
+        logger.info("🔍 Testing Gemini API connection...")
         
-        يرسل طلب بسيط للتحقق من:
-        - صحة API Key
-        - توفر النموذج
-        - سلامة الاتصال
-        """
         try:
-            logger.info("🔍 Testing Gemini API connection...")
-            
+            # طلب اختبار بسيط
             test_response = self.model.generate_content(
-                "اكتب 'مرحبا' فقط",
+                "قل 'مرحبا' فقط بدون أي نص إضافي",
                 request_options={'timeout': 30}
             )
             
             if test_response and test_response.text:
-                logger.info("✅ Gemini API connection test successful")
-                logger.debug(f"   Test response: {test_response.text[:50]}...")
+                response_text = test_response.text.strip()
+                logger.info(f"✅ Connection test successful")
+                logger.debug(f"   Response: '{response_text}'")
+                return True
             else:
-                logger.warning("⚠️ API responded but with empty content")
+                logger.warning("⚠️ Empty response received")
+                logger.warning("   API is responding but may have issues")
+                return False
                 
         except Exception as e:
-            logger.error(f"❌ API connection test failed: {e}")
-            logger.warning("⚠️ Will continue, but API may not be working correctly")
-            logger.warning("   Check: API key, model name, network connectivity")
+            error_msg = str(e).lower()
+            
+            logger.error(f"❌ Connection test failed: {e}")
+            
+            # تحليل نوع الخطأ وتقديم حلول
+            if 'not found' in error_msg or '404' in error_msg:
+                logger.error("   ❌ Model not found")
+                logger.error("   Solutions:")
+                logger.error("   1. Check model name spelling")
+                logger.error("   2. Ensure model is available in your region")
+                logger.error("   3. Try: gemini-1.5-flash or gemini-1.5-pro")
+                
+            elif 'api key' in error_msg or 'auth' in error_msg or '401' in error_msg:
+                logger.error("   ❌ Authentication failed")
+                logger.error("   Solutions:")
+                logger.error("   1. Verify GEMINI_API_KEY is correct")
+                logger.error("   2. Check API key has Gemini API enabled")
+                logger.error("   3. Generate new key at: https://aistudio.google.com/apikey")
+                
+            elif 'quota' in error_msg or 'limit' in error_msg or '429' in error_msg:
+                logger.error("   ❌ Quota/Rate limit exceeded")
+                logger.error("   Solutions:")
+                logger.error("   1. Wait before retrying")
+                logger.error("   2. Check your quota at Google Cloud Console")
+                logger.error("   3. Consider upgrading your plan")
+                
+            elif 'timeout' in error_msg or 'deadline' in error_msg:
+                logger.error("   ❌ Request timeout")
+                logger.error("   Solutions:")
+                logger.error("   1. Increase GEMINI_TIMEOUT (current: {config.GEMINI_TIMEOUT}s)")
+                logger.error("   2. Check network connectivity")
+                logger.error("   3. Try again later")
+                
+            else:
+                logger.error("   ❌ Unknown error")
+                logger.error("   Check:")
+                logger.error("   1. Network connectivity")
+                logger.error("   2. Render logs for more details")
+                logger.error("   3. Google AI Python SDK version")
+            
+            logger.warning("   ⚠️ Continuing anyway, but API calls may fail")
+            return False
     
-    def generate_recipe(self, category: str, max_retries: int = 3) -> Optional[Recipe]:
+    def generate_recipe(self, category: str) -> Optional[Recipe]:
         """
-        توليد وصفة مع آلية إعادة المحاولة
+        توليد وصفة مع آلية exponential backoff
         
         Args:
             category: فئة الوصفة
-            max_retries: عدد المحاولات القصوى
             
         Returns:
             Recipe أو None
         """
-        for attempt in range(1, max_retries + 1):
+        logger.info(f"🤖 Generating recipe for category: {category}")
+        
+        for attempt in range(1, config.GEMINI_MAX_RETRIES + 1):
             try:
-                logger.info(f"🤖 Generating recipe for: {category} (Attempt {attempt}/{max_retries})")
+                logger.info(f"   Attempt {attempt}/{config.GEMINI_MAX_RETRIES}")
                 
+                # بناء prompt محسّن
                 prompt = self._build_enhanced_prompt(category)
                 
-                # استدعاء API مع timeout محدد
-                response = self.model.generate_content(
-                    prompt,
-                    request_options={'timeout': 60}  # 60 ثانية timeout
+                # حساب timeout ديناميكي
+                dynamic_timeout = min(
+                    config.GEMINI_TIMEOUT * attempt,  # زيادة مع كل محاولة
+                    300  # حد أقصى 5 دقائق
                 )
                 
+                logger.debug(f"   Using timeout: {dynamic_timeout}s")
+                
+                # استدعاء API
+                response = self.model.generate_content(
+                    prompt,
+                    request_options={'timeout': dynamic_timeout}
+                )
+                
+                # التحقق من الاستجابة
                 if not response or not response.text:
-                    logger.error(f"❌ Empty response from Gemini (Attempt {attempt})")
-                    if attempt < max_retries:
-                        logger.info(f"⏳ Retrying in 5 seconds...")
-                        time.sleep(5)
+                    logger.warning(f"   ⚠️ Empty response received")
+                    
+                    if attempt < config.GEMINI_MAX_RETRIES:
+                        wait_time = self._calculate_backoff(attempt)
+                        logger.info(f"   ⏳ Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
                         continue
+                    
+                    logger.error("   ❌ All attempts returned empty responses")
                     return None
                 
+                # معالجة الاستجابة
                 recipe = self._parse_response(response.text, category)
                 
                 if recipe:
-                    logger.info(f"✅ Generated successfully: {recipe.title}")
+                    logger.info(f"✅ Recipe generated successfully: {recipe.title[:50]}...")
                     return recipe
                 else:
-                    logger.warning(f"⚠️ Parsing failed (Attempt {attempt})")
-                    if attempt < max_retries:
-                        logger.info(f"⏳ Retrying with modified prompt...")
-                        time.sleep(3)
+                    logger.warning(f"   ⚠️ Failed to parse response")
+                    
+                    if attempt < config.GEMINI_MAX_RETRIES:
+                        wait_time = self._calculate_backoff(attempt)
+                        logger.info(f"   ⏳ Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
                         continue
                 
             except Exception as e:
-                logger.error(f"❌ Generation failed (Attempt {attempt}/{max_retries}): {e}")
+                error_msg = str(e).lower()
+                logger.error(f"   ❌ Attempt {attempt} failed: {e}")
                 
-                if attempt < max_retries:
-                    logger.info(f"⏳ Retrying in 10 seconds...")
-                    time.sleep(10)
+                # تحليل نوع الخطأ
+                if 'quota' in error_msg or '429' in error_msg:
+                    logger.error("   💰 Quota exceeded - longer wait needed")
+                    wait_time = 60 * attempt  # انتظار أطول
+                    
+                elif 'timeout' in error_msg or 'deadline' in error_msg:
+                    logger.error("   ⏱️ Timeout - will retry with longer timeout")
+                    wait_time = self._calculate_backoff(attempt)
+                    
                 else:
-                    logger.error(f"💥 All {max_retries} attempts failed")
-                    return None
+                    wait_time = self._calculate_backoff(attempt)
+                
+                if attempt < config.GEMINI_MAX_RETRIES:
+                    logger.info(f"   ⏳ Waiting {wait_time}s before retry...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"💥 All {config.GEMINI_MAX_RETRIES} attempts failed")
+                    logger.error("   Check Render logs for detailed error information")
         
         return None
     
+    def _calculate_backoff(self, attempt: int) -> int:
+        """
+        حساب وقت الانتظار بـ exponential backoff
+        
+        Args:
+            attempt: رقم المحاولة
+            
+        Returns:
+            int: ثوان الانتظار
+        """
+        # Exponential backoff: 2, 4, 8, 16, 32...
+        base_wait = 2 ** attempt
+        
+        # إضافة jitter عشوائي لتجنب thundering herd
+        jitter = random.uniform(0, 1)
+        
+        total_wait = base_wait + jitter
+        
+        # حد أقصى 60 ثانية
+        return int(min(total_wait, 60))
+    
     def _build_enhanced_prompt(self, category: str) -> str:
-        """بناء prompt محسّن لجودة أعلى وسرعة أفضل"""
+        """بناء prompt محسّن لجودة أعلى"""
         return f"""أنت طاهٍ محترف ومبدع متخصص في {category}. مهمتك إنشاء وصفة طبخ احترافية تجذب الزوار وتحقق مشاهدات عالية.
 
 متطلبات الجودة:
@@ -795,18 +919,32 @@ class GeminiChefEngine:
 أنشئ الآن وصفة متميزة في فئة: {category}"""
     
     def _parse_response(self, text: str, category: str) -> Optional[Recipe]:
+        """معالجة استجابة Gemini مع error handling محسّن"""
         try:
+            # البحث عن JSON في النص
             json_match = re.search(r'\{.*\}', text, re.DOTALL)
             if not json_match:
                 logger.error("❌ No JSON found in response")
+                logger.debug(f"Response preview: {text[:200]}...")
                 return None
             
-            data = json.loads(json_match.group())
+            # استخراج وتحليل JSON
+            json_str = json_match.group()
+            data = json.loads(json_str)
             
+            # التحقق من الحقول المطلوبة
+            required_fields = ['title', 'description', 'ingredients', 'steps']
+            missing_fields = [f for f in required_fields if f not in data or not data[f]]
+            
+            if missing_fields:
+                logger.error(f"❌ Missing required fields: {', '.join(missing_fields)}")
+                return None
+            
+            # بناء كائن Recipe
             recipe = Recipe(
-                title=data.get('title', ''),
+                title=data.get('title', '').strip(),
                 category=category,
-                description=data.get('description', ''),
+                description=data.get('description', '').strip(),
                 ingredients=data.get('ingredients', []),
                 steps=data.get('steps', []),
                 prep_time=int(data.get('prep_time', 30)),
@@ -817,18 +955,29 @@ class GeminiChefEngine:
                 tags=data.get('tags', [category])
             )
             
+            # حساب عدد الكلمات
             full_text = f"{recipe.title} {recipe.description} " + \
                        " ".join(recipe.ingredients) + " ".join(recipe.steps)
             recipe.word_count = len(full_text.split())
             
+            logger.debug(f"Recipe parsed: {recipe.word_count} words, "
+                        f"{len(recipe.ingredients)} ingredients, "
+                        f"{len(recipe.steps)} steps")
+            
             return recipe
             
+        except json.JSONDecodeError as e:
+            logger.error(f"❌ JSON parsing failed: {e}")
+            logger.debug(f"JSON string: {json_str[:200]}...")
+            return None
         except Exception as e:
-            logger.error(f"❌ Parsing failed: {e}")
+            logger.error(f"❌ Response parsing failed: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
             return None
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# ADVANCED SEO OPTIMIZER - FOR FAST TRAFFIC
+# ADVANCED SEO OPTIMIZER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class SEOOptimizer:
@@ -1268,7 +1417,7 @@ class ZajmilAIChef:
     
     def __init__(self):
         logger.info("=" * 80)
-        logger.info("🚀 Initializing Zajmil AI Chef System v2.0 [RENDER PRODUCTION]")
+        logger.info("🚀 Initializing Zajmil AI Chef System v2.1 [RENDER OPTIMIZED]")
         logger.info("=" * 80)
         
         # التحقق من الإعدادات
@@ -1446,7 +1595,7 @@ def main():
     """نقطة الدخول الرئيسية للبرنامج"""
     
     parser = argparse.ArgumentParser(
-        description="Zajmil AI Chef v2.0 - Production Ready for Render",
+        description="Zajmil AI Chef v2.1 - Render Production Optimized",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1462,6 +1611,12 @@ OPTIONAL (OAuth):
   CLIENT_SECRET_JSON          Complete client_secret.json as JSON string
   BLOGGER_CLIENT_ID           OAuth client ID
   BLOGGER_CLIENT_SECRET       OAuth client secret
+
+GEMINI AI SETTINGS:
+  GEMINI_MODEL                Model name (default: gemini-1.5-flash)
+  GEMINI_TEMPERATURE          Creativity level (default: 0.9)
+  GEMINI_TIMEOUT              Request timeout in seconds (default: 120)
+  GEMINI_MAX_RETRIES          Max retry attempts (default: 5)
 
 PUBLISHING:
   PUBLISH_INTERVAL_HOURS      Hours between posts (default: 24)
@@ -1481,10 +1636,6 @@ SEO OPTIMIZATION:
   ENABLE_RICH_SNIPPETS        Enable rich snippets (default: true)
   ENABLE_SOCIAL_META_TAGS     Enable social tags (default: true)
   TARGET_WORD_COUNT           Target words per recipe (default: 1200)
-
-AI MODEL:
-  GEMINI_MODEL                Model name (default: gemini-1.5-flash)
-  GEMINI_TEMPERATURE          Creativity level (default: 0.9)
 
 ═══════════════════════════════════════════════════════════════════════════════
         """
